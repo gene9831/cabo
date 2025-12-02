@@ -11,6 +11,8 @@
     "lint": "eslint \"src/**/*.{ts,tsx,vue}\" --fix"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.1.17",
+    "tailwindcss": "^4.1.17",
     "vue": "^3.5.25"
   },
   "devDependencies": {
