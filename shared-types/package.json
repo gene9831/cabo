@@ -1,5 +1,13 @@
 {
   "name": "shared-types",
   "version": "0.0.1",
-  "description": ""
+  "description": "",
+  "main": "./types/index.ts",
+  "types": "./types/index.ts",
+  "exports": {
+    ".": "./types/index.ts"
+  },
+  "devDependencies": {
+    "socket.io": "^4.7.5"
+  }
 }

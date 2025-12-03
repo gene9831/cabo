@@ -1,9 +1,9 @@
-import eslint from '@eslint/js';
-import eslintConfigPrettier from 'eslint-config-prettier';
-import eslintPluginVue from 'eslint-plugin-vue';
-import { defineConfig } from 'eslint/config';
-import globals from 'globals';
-import tsLint from 'typescript-eslint';
+import eslint from '@eslint/js'
+import eslintConfigPrettier from 'eslint-config-prettier'
+import eslintPluginVue from 'eslint-plugin-vue'
+import { defineConfig } from 'eslint/config'
+import globals from 'globals'
+import tsLint from 'typescript-eslint'
 
 export default defineConfig(
   { ignores: ['*.d.ts', '**/coverage', '**/dist'] },
@@ -24,8 +24,8 @@ export default defineConfig(
       },
     },
     rules: {
-      // your rules
+      'vue/multi-word-component-names': 'off',
     },
   },
   eslintConfigPrettier,
-);
+)
