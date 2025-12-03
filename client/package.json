@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
-    "format": "prettier --write \"src/**/*.{ts,tsx,vue}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,vue}\" --list-different",
     "lint": "eslint \"src/**/*.{ts,tsx,vue}\" --fix"
   },
   "dependencies": {

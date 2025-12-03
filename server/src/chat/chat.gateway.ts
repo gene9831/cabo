@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -6,34 +7,25 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { randomUUID } from 'crypto';
-import type {
-  ChatMessage,
-  ClientToServerEvents,
-  ServerToClientEvents,
-  SocketData,
-  User,
-} from 'shared-types';
+import type { ChatMessage, ClientToServerEvents, ServerToClientEvents, SocketData, User } from 'shared-types';
 import { DefaultEventsMap, Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 
-type Client = Socket<
-  ClientToServerEvents,
-  ServerToClientEvents,
-  DefaultEventsMap,
-  SocketData
->;
+type Client = Socket<ClientToServerEvents, ServerToClientEvents, DefaultEventsMap, SocketData>;
 
 type AuthedClient = Socket<
   ClientToServerEvents,
   ServerToClientEvents,
   DefaultEventsMap,
-  SocketData & { userId: string }
+  Omit<SocketData, 'userId'> & { userId: string }
 >;
 
 @WebSocketGateway({ path: '/ws' })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server<ClientToServerEvents, ServerToClientEvents>;
+
+  private readonly logger = new Logger(ChatGateway.name);
 
   constructor(private readonly chatService: ChatService) {}
 
@@ -52,9 +44,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Initialize socket data without user (will be set after register/login)
     client.data = {};
 
-    console.log(
-      `${new Date().toLocaleString()} Client connected: socketId=${socketId} (awaiting authentication)`,
-    );
+    this.logger.log(`Client connected: socketId=${socketId} (awaiting authentication)`);
   }
 
   /**
@@ -64,9 +54,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const socketId = client.id;
 
     if (!this.isAuthenticated(client)) {
-      console.log(
-        `${new Date().toLocaleString()} Client disconnected: socketId=${socketId} (not authenticated)`,
-      );
+      this.logger.log(`Client disconnected: socketId=${socketId} (not authenticated)`);
       return;
     }
 
@@ -82,9 +70,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.emit('userLeft', { userId });
     }
 
-    console.log(
-      `${new Date().toLocaleString()} Client disconnected: socketId=${socketId}, userId=${userId}`,
-    );
+    this.logger.log(`Client disconnected: socketId=${socketId}, userId=${userId}`);
   }
 
   /**
@@ -141,8 +127,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     client.broadcast.emit('userJoined', { user });
 
-    console.log(
-      `${new Date().toLocaleString()} User ${isNewUser ? 'registered' : 'logged in'}: socketId=${socketId}, id=${user.id}, username=${user.username}`,
+    this.logger.log(
+      `User ${isNewUser ? 'registered' : 'logged in'}: socketId=${socketId}, id=${user.id}, username=${user.username}`,
     );
 
     // Return response via callback
@@ -159,18 +145,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleMessage(client: Client, data: { content: string }) {
     // Check authentication
     if (!this.isAuthenticated(client)) {
-      console.warn(
-        `${new Date().toLocaleString()} Unauthenticated message attempt from socketId=${client.id}`,
-      );
+      this.logger.warn(`Unauthenticated message attempt from socketId=${client.id}`);
       return;
     }
 
     const userId = client.data.userId;
     const user = this.chatService.getUser(userId);
     if (!user) {
-      console.warn(
-        `${new Date().toLocaleString()} User not found for userId=${userId}`,
-      );
+      this.logger.warn(`User not found for userId=${userId}`);
       return;
     }
 
@@ -196,9 +178,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleSetUsername(client: Client, data: { username: string }) {
     // Check authentication
     if (!this.isAuthenticated(client)) {
-      console.warn(
-        `${new Date().toLocaleString()} Unauthenticated setUsername attempt from socketId=${client.id}`,
-      );
+      this.logger.warn(`Unauthenticated setUsername attempt from socketId=${client.id}`);
       return;
     }
 
@@ -219,9 +199,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleJoin(client: Client) {
     // Check authentication
     if (!this.isAuthenticated(client)) {
-      console.warn(
-        `${new Date().toLocaleString()} Unauthenticated join attempt from socketId=${client.id}`,
-      );
+      this.logger.warn(`Unauthenticated join attempt from socketId=${client.id}`);
       return;
     }
 

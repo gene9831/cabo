@@ -1,17 +1,10 @@
 <script setup lang="ts">
-import type {
-  ChatMessage,
-  ClientToServerEvents,
-  ServerToClientEvents,
-  User,
-} from 'shared-types'
+import type { ChatMessage, ClientToServerEvents, ServerToClientEvents, User } from 'shared-types'
 import { Socket } from 'socket.io-client'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { createSocket } from '../utils/socket'
 
-const socket = ref<Socket<ServerToClientEvents, ClientToServerEvents> | null>(
-  null,
-)
+const socket = ref<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null)
 const messages = ref<ChatMessage[]>([])
 const messageInput = ref('')
 const usernameInput = ref('')
@@ -43,28 +36,22 @@ onMounted(() => {
     const storedId = getStoredUserId()
 
     // Execute login (will auto-register if id not provided or user not found)
-    socket.value.emit(
-      'login',
-      { id: storedId || undefined },
-      (response: User | { error: string }) => {
-        if ('error' in response) {
-          console.error('Login failed:', response.error)
-          // Clear invalid stored id
-          if (storedId) {
-            localStorage.removeItem('chat_user_id')
-          }
-          return
+    socket.value.emit('login', { id: storedId || undefined }, (response: User | { error: string }) => {
+      if ('error' in response) {
+        console.error('Login failed:', response.error)
+        // Clear invalid stored id
+        if (storedId) {
+          localStorage.removeItem('chat_user_id')
         }
+        return
+      }
 
-        currentUser.value = response
-        // Save user id to localStorage
-        saveUserId(response.id)
+      currentUser.value = response
+      // Save user id to localStorage
+      saveUserId(response.id)
 
-        console.log(
-          `Authentication successful: id=${response.id}, username=${response.username}`,
-        )
-      },
-    )
+      console.log(`Authentication successful: id=${response.id}, username=${response.username}`)
+    })
   })
 
   // Listen for disconnection
@@ -150,10 +137,7 @@ const formatTime = (timestamp: number) => {
           class="flex-1 px-3 py-2 border rounded"
           @keyup.enter="updateUsername"
         />
-        <button
-          class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          @click="updateUsername"
-        >
+        <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" @click="updateUsername">
           Update
         </button>
       </div>
@@ -161,21 +145,13 @@ const formatTime = (timestamp: number) => {
 
     <!-- Messages area -->
     <div class="flex-1 overflow-y-auto border rounded p-4 mb-4 bg-gray-50">
-      <div v-if="messages.length === 0" class="text-gray-500 text-center">
-        No messages yet. Start chatting!
-      </div>
-      <div
-        v-for="message in messages"
-        :key="message.id"
-        class="mb-3 p-2 bg-white rounded shadow-sm"
-      >
+      <div v-if="messages.length === 0" class="text-gray-500 text-center">No messages yet. Start chatting!</div>
+      <div v-for="message in messages" :key="message.id" class="mb-3 p-2 bg-white rounded shadow-sm">
         <div class="flex justify-between items-start mb-1">
           <span class="font-semibold text-sm">
             {{ message.username || `User ${message.userId.slice(0, 6)}` }}
           </span>
-          <span class="text-xs text-gray-500">{{
-            formatTime(message.timestamp)
-          }}</span>
+          <span class="text-xs text-gray-500">{{ formatTime(message.timestamp) }}</span>
         </div>
         <div class="text-gray-800">{{ message.content }}</div>
       </div>
@@ -190,17 +166,10 @@ const formatTime = (timestamp: number) => {
         class="flex-1 px-3 py-2 border rounded"
         @keyup.enter="sendMessage"
       />
-      <button
-        class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        @click="sendMessage"
-      >
-        Send
-      </button>
+      <button class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" @click="sendMessage">Send</button>
     </div>
 
     <!-- Online users count -->
-    <div class="mt-2 text-sm text-gray-500">
-      Online: {{ onlineUsers.length }}
-    </div>
+    <div class="mt-2 text-sm text-gray-500">Online: {{ onlineUsers.length }}</div>
   </div>
 </template>
