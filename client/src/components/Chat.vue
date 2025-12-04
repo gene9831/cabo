@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChatMessage, ClientToServerEvents, ServerToClientEvents, User } from 'shared-types'
+import type { ChatMessage, ClientToServerEvents, ServerToClientEvents, User } from 'server/types'
 import { Socket } from 'socket.io-client'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { createSocket } from '../utils/socket'
@@ -35,22 +35,13 @@ onMounted(() => {
     // Get stored user id from localStorage
     const storedId = getStoredUserId()
 
-    // Execute login (will auto-register if id not provided or user not found)
-    socket.value.emit('login', { id: storedId || undefined }, (response: User | { error: string }) => {
-      if ('error' in response) {
-        console.error('Login failed:', response.error)
-        // Clear invalid stored id
-        if (storedId) {
-          localStorage.removeItem('chat_user_id')
-        }
-        return
-      }
-
-      currentUser.value = response
+    // Execute auth (will auto-register if id not provided or user not found)
+    socket.value.emit('auth', { id: storedId || undefined }, (user) => {
+      currentUser.value = user
       // Save user id to localStorage
-      saveUserId(response.id)
+      saveUserId(user.id)
 
-      console.log(`Authentication successful: id=${response.id}, username=${response.username}`)
+      console.log(`Authentication successful: id=${user.id}, username=${user.username}`)
     })
   })
 
@@ -60,8 +51,8 @@ onMounted(() => {
   })
 
   // Listen for messages
-  socket.value.on('message', (message) => {
-    messages.value.push(message)
+  socket.value.on('message', (messageArray) => {
+    messages.value.push(...messageArray)
   })
 
   // Listen for online users updates
@@ -83,6 +74,10 @@ onMounted(() => {
     // Remove user from online users list
     onlineUsers.value = onlineUsers.value.filter((u) => u.id !== data.userId)
   })
+
+  socket.value.on('exception', (error) => {
+    console.error('Socket exception:', error)
+  })
 })
 
 // Cleanup on unmount
@@ -102,9 +97,12 @@ const sendMessage = () => {
 
 // Update username
 const updateUsername = () => {
-  if (!socket.value || !usernameInput.value.trim()) return
+  const username = usernameInput.value.trim()
+  if (!socket.value || !username || !currentUser.value) return
 
-  socket.value.emit('setUsername', { username: usernameInput.value.trim() })
+  currentUser.value.username = username
+
+  socket.value.emit('setUsername', { username: username })
   usernameInput.value = ''
 }
 
@@ -112,11 +110,22 @@ const updateUsername = () => {
 const formatTime = (timestamp: number) => {
   return new Date(timestamp).toLocaleTimeString()
 }
+
+const test = () => {
+  if (!socket.value) return
+
+  console.log('test')
+  socket.value.emit('test', { message: 'test2' }, (res) => {
+    console.log(res)
+  })
+}
 </script>
 
 <template>
   <div class="flex flex-col h-screen max-w-4xl mx-auto p-4">
     <h1 class="text-2xl font-bold mb-4">Chat</h1>
+
+    <button @click="test">Test</button>
 
     <!-- Current user info -->
     <div v-if="currentUser" class="mb-4 p-2 border rounded bg-blue-50">
@@ -149,7 +158,7 @@ const formatTime = (timestamp: number) => {
       <div v-for="message in messages" :key="message.id" class="mb-3 p-2 bg-white rounded shadow-sm">
         <div class="flex justify-between items-start mb-1">
           <span class="font-semibold text-sm">
-            {{ message.username || `User ${message.userId.slice(0, 6)}` }}
+            {{ message.username }}
           </span>
           <span class="text-xs text-gray-500">{{ formatTime(message.timestamp) }}</span>
         </div>

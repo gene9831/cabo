@@ -1,13 +1,11 @@
 {
   "scripts": {
-    "dev": "concurrently -n \"client,server\" -c \"yellow,blue\" \"pnpm dev:client\" \"pnpm dev:server\"",
     "dev:client": "pnpm -F client dev",
     "dev:server": "pnpm -F server start:dev",
     "format": "pnpm -r format",
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.14",
-    "concurrently": "^9.2.1"
+    "@nestjs/cli": "^11.0.14"
   }
 }

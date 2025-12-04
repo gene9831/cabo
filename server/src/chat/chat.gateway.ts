@@ -1,5 +1,7 @@
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import {
+  ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
@@ -7,20 +9,28 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { randomUUID } from 'crypto';
-import type { ChatMessage, ClientToServerEvents, ServerToClientEvents, SocketData, User } from 'shared-types';
-import { DefaultEventsMap, Server, Socket } from 'socket.io';
-import { ChatService } from './chat.service';
-
-type Client = Socket<ClientToServerEvents, ServerToClientEvents, DefaultEventsMap, SocketData>;
-
-type AuthedClient = Socket<
+import { Server } from 'socket.io';
+import { WsAuthGuard } from 'src/guards';
+import type {
+  AuthedClientSocket,
+  ChatMessage,
+  ClientSocket,
   ClientToServerEvents,
   ServerToClientEvents,
-  DefaultEventsMap,
-  Omit<SocketData, 'userId'> & { userId: string }
->;
+} from '../types';
+import { ChatService } from './chat.service';
+import { AuthDto, MessageDto, SetUsernameDto } from './dto';
 
-@WebSocketGateway({ path: '/ws' })
+type CallbackParam<T> = T extends (...args: [...infer Args, (res: infer R) => void]) => any ? R : void;
+
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    transform: true,
+  }),
+)
+@UseGuards(WsAuthGuard)
+@WebSocketGateway({ path: '/ws', transports: ['websocket'] })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server<ClientToServerEvents, ServerToClientEvents>;
@@ -30,16 +40,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private readonly chatService: ChatService) {}
 
   /**
-   * Check if socket is authenticated
-   */
-  private isAuthenticated(client: Client): client is AuthedClient {
-    return Boolean(client.data.userId);
-  }
-
-  /**
    * Handle client connection
    */
-  handleConnection(client: Client) {
+  handleConnection(client: ClientSocket) {
     const socketId = client.id;
     // Initialize socket data without user (will be set after register/login)
     client.data = {};
@@ -50,17 +53,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Handle client disconnection
    */
-  handleDisconnect(client: Client) {
+  handleDisconnect(client: ClientSocket) {
     const socketId = client.id;
-
-    if (!this.isAuthenticated(client)) {
-      this.logger.log(`Client disconnected: socketId=${socketId} (not authenticated)`);
-      return;
-    }
 
     const userId = client.data.userId;
 
-    this.chatService.removeUserSocket(userId, socketId);
+    if (!userId) {
+      return;
+    }
+
+    this.chatService.removeUserConnection(userId, socketId);
 
     // Remove socket connection from user
     const socketIds = this.chatService.getSocketIds(userId);
@@ -74,24 +76,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Handle login event from client
+   * Handle auth event from client
    * If id is provided and user exists, login
    * Otherwise, auto-register a new user
    */
-  @SubscribeMessage('login')
-  handleLogin(
-    client: Client,
-    data: { id?: string; username?: string },
-    callback: (response: User | { error: string }) => void,
-  ) {
-    // Check if already authenticated
-    if (this.isAuthenticated(client)) {
-      callback({ error: 'Already authenticated' });
-      return;
-    }
-
-    const id = data.id?.trim();
-    const providedUsername = data.username?.trim();
+  @SubscribeMessage('auth')
+  handleAuth(
+    @MessageBody() authDto: AuthDto,
+    @ConnectedSocket() client: ClientSocket,
+  ): CallbackParam<ClientToServerEvents['auth']> {
+    const id = authDto.id?.trim();
+    const providedUsername = authDto.username?.trim();
 
     // Try to get existing user if id provided
     let user = id ? this.chatService.getUser(id) : undefined;
@@ -112,14 +107,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const socketId = client.id;
 
-    // Add user to service
-    this.chatService.addUser(user.id, socketId, user);
+    if (isNewUser) {
+      this.chatService.addUser(user.id, user);
+    } else {
+      this.chatService.updateUserUsername(user.id, user.username);
+    }
+    this.chatService.addUserConnection(user.id, client.id);
 
     // Send message history to the client
     const messages = this.chatService.getMessages();
-    messages.forEach((msg) => {
-      client.emit('message', msg);
-    });
+    client.emit('message', messages);
 
     // Send online users list to the client
     const onlineUsers = this.chatService.getOnlineUsers();
@@ -131,34 +128,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `User ${isNewUser ? 'registered' : 'logged in'}: socketId=${socketId}, id=${user.id}, username=${user.username}`,
     );
 
-    // Return response via callback
-    callback({
+    return {
       id: user.id,
       username: user.username,
-    });
+    };
   }
 
   /**
    * Handle message event from client
    */
   @SubscribeMessage('message')
-  handleMessage(client: Client, data: { content: string }) {
-    // Check authentication
-    if (!this.isAuthenticated(client)) {
-      this.logger.warn(`Unauthenticated message attempt from socketId=${client.id}`);
-      return;
-    }
-
+  handleMessage(
+    @MessageBody() messageDto: MessageDto,
+    @ConnectedSocket() client: AuthedClientSocket,
+  ): CallbackParam<ClientToServerEvents['message']> {
     const userId = client.data.userId;
     const user = this.chatService.getUser(userId);
     if (!user) {
-      this.logger.warn(`User not found for userId=${userId}`);
-      return;
+      throw new Error('User not found');
     }
 
     const message: ChatMessage = {
       id: `${Date.now()}-${client.id}`,
-      content: data.content,
+      content: messageDto.content,
       userId: user.id,
       username: user.username,
       timestamp: Date.now(),
@@ -168,20 +160,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.chatService.addMessage(message);
 
     // Broadcast message to all clients
-    this.server.emit('message', message);
+    this.server.emit('message', [message]);
   }
 
   /**
    * Handle setUsername event from client
    */
   @SubscribeMessage('setUsername')
-  handleSetUsername(client: Client, data: { username: string }) {
-    // Check authentication
-    if (!this.isAuthenticated(client)) {
-      this.logger.warn(`Unauthenticated setUsername attempt from socketId=${client.id}`);
-      return;
-    }
-
+  handleSetUsername(
+    @MessageBody() data: SetUsernameDto,
+    @ConnectedSocket() client: AuthedClientSocket,
+  ): CallbackParam<ClientToServerEvents['setUsername']> {
     const userId = client.data.userId;
 
     // Update username in service
@@ -190,26 +179,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Broadcast updated online users list
     const onlineUsers = this.chatService.getOnlineUsers();
     this.server.emit('onlineUsers', { users: onlineUsers });
+
+    return {
+      id: userId,
+      username: data.username,
+    };
   }
 
-  /**
-   * Handle join event from client
-   */
-  @SubscribeMessage('join')
-  handleJoin(client: Client) {
-    // Check authentication
-    if (!this.isAuthenticated(client)) {
-      this.logger.warn(`Unauthenticated join attempt from socketId=${client.id}`);
-      return;
-    }
-
-    // Send current state to the client
-    const messages = this.chatService.getMessages();
-    messages.forEach((msg) => {
-      client.emit('message', msg);
-    });
-
-    const onlineUsers = this.chatService.getOnlineUsers();
-    client.emit('onlineUsers', { users: onlineUsers });
+  @SubscribeMessage('test')
+  handleTest(@MessageBody() data: any): CallbackParam<ClientToServerEvents['test']> {
+    return data;
   }
 }
