@@ -160,8 +160,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Update username in service
     const updatedUser = await this.chatService.udpateUsername(user.id, data.username);
 
-    const onlineUsers = await this.chatService.getOnlineUsers();
-    this.server.emit('onlineUsers', { users: onlineUsers });
+    // Notify other clients about the updated user
+    this.server.emit('userUpdated', { user: updatedUser });
 
     return {
       id: updatedUser.id,

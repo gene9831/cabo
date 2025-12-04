@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ChatMessage, ClientToServerEvents, ServerToClientEvents, User } from 'server/types'
 import { Socket } from 'socket.io-client'
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { createSocket } from '../utils/socket'
 
 const socket = ref<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null)
@@ -9,7 +9,10 @@ const messages = ref<ChatMessage[]>([])
 const messageInput = ref('')
 const usernameInput = ref('')
 const onlineUsers = ref<User[]>([])
-const currentUser = ref<User | null>(null)
+const currentUserId = ref<string | null>(null)
+const currentUser = computed(() => {
+  return onlineUsers.value.find((u) => u.id === currentUserId.value)
+})
 
 // LocalStorage key for user id
 const USER_ID_KEY = 'chat_user_id'
@@ -37,7 +40,7 @@ onMounted(() => {
 
     // Execute auth (will auto-register if id not provided or user not found)
     socket.value.emit('auth', { id: storedId || undefined }, (user) => {
-      currentUser.value = user
+      currentUserId.value = user.id
       // Save user id to localStorage
       saveUserId(user.id)
 
@@ -63,19 +66,6 @@ onMounted(() => {
   // Listen for online users updates
   socket.value.on('onlineUsers', (data) => {
     onlineUsers.value = data.users
-
-    // update messages with latest username
-    for (const user of onlineUsers.value) {
-      if (currentUser.value && user.id === currentUser.value.id) {
-        currentUser.value.username = user.username
-      }
-
-      for (const message of messages.value) {
-        if (message.userId === user.id) {
-          message.username = user.username
-        }
-      }
-    }
   })
 
   // Listen for user joined
@@ -91,6 +81,22 @@ onMounted(() => {
   socket.value.on('userLeft', (data) => {
     // Remove user from online users list
     onlineUsers.value = onlineUsers.value.filter((u) => u.id !== data.userId)
+  })
+
+  // Listen for user updated
+  socket.value.on('userUpdated', (data) => {
+    // Update user in online users list
+    const user = onlineUsers.value.find((u) => u.id === data.user.id)
+    if (user) {
+      user.username = data.user.username
+    }
+
+    // update messages with latest username
+    for (const message of messages.value) {
+      if (message.userId === data.user.id) {
+        message.username = data.user.username
+      }
+    }
   })
 
   socket.value.on('exception', (error) => {
@@ -116,9 +122,7 @@ const sendMessage = () => {
 // Update username
 const updateUsername = () => {
   const username = usernameInput.value.trim()
-  if (!socket.value || !username || !currentUser.value) return
-
-  currentUser.value.username = username
+  if (!socket.value || !username) return
 
   socket.value.emit('setUsername', { username: username })
   usernameInput.value = ''

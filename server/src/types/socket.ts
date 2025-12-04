@@ -25,6 +25,8 @@ export interface ServerToClientEvents {
   userJoined: (data: { user: User }) => void;
   // User left notification
   userLeft: (data: { userId: string }) => void;
+  // User updated notification
+  userUpdated: (data: { user: User }) => void;
   // Online users list
   onlineUsers: (data: { users: User[] }) => void;
 }
