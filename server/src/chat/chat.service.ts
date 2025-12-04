@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { ChatMessage, User } from '../types';
+import type { ChatMessage } from '../types';
+import { UserService } from '../user/user.service';
 
 @Injectable()
 export class ChatService {
@@ -9,8 +10,7 @@ export class ChatService {
   // Map userId (UUID) to Set of socketIds (supports multiple connections per user)
   private userSockets: Map<string, Set<string>> = new Map();
 
-  // Map userId (UUID) to User data
-  private userData: Map<string, User> = new Map();
+  constructor(private readonly userService: UserService) {}
 
   /**
    * Add a new message to the chat
@@ -26,10 +26,9 @@ export class ChatService {
     return this.messages;
   }
 
-  addUser(userId: string, user: User): void {
-    this.userData.set(userId, user);
-  }
-
+  /**
+   * Add a socket connection for a user
+   */
   addUserConnection(userId: string, socketId: string): void {
     if (!this.userSockets.has(userId)) {
       this.userSockets.set(userId, new Set());
@@ -45,14 +44,14 @@ export class ChatService {
     const socketSet = this.userSockets.get(userId);
     if (socketSet) {
       socketSet.delete(socketId);
+      if (socketSet.size === 0) {
+        this.userSockets.delete(userId);
+      }
     }
   }
 
-  /**
-   * Get user by UUID
-   */
-  getUser(userId: string): User | undefined {
-    return this.userData.get(userId);
+  getUserIds(): string[] {
+    return Array.from(this.userSockets.keys());
   }
 
   /**
@@ -62,31 +61,8 @@ export class ChatService {
     return this.userSockets.get(userId) || new Set();
   }
 
-  /**
-   * Update user username by UUID
-   */
-  updateUserUsername(userId: string, username: string): void {
-    const user = this.userData.get(userId);
-    if (user) {
-      const updatedUser: User = {
-        ...user,
-        username,
-      };
-      this.userData.set(userId, updatedUser);
-    }
-  }
-
-  /**
-   * Get all online users (unique by UUID, not by socket)
-   */
-  getOnlineUsers(): User[] {
-    return Array.from(this.userData.values());
-  }
-
-  /**
-   * Get user count (unique users by UUID)
-   */
-  getUserCount(): number {
-    return this.userData.size;
+  getOnlineUsers() {
+    const onlineUserIds = this.getUserIds();
+    return this.userService.users({ where: { id: { in: onlineUserIds } } });
   }
 }
