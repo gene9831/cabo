@@ -51,13 +51,31 @@ onMounted(() => {
   })
 
   // Listen for messages
-  socket.value.on('message', (messageArray) => {
-    messages.value.push(...messageArray)
+  socket.value.on('message', (message) => {
+    messages.value.push(message)
+  })
+
+  // Listen for all messages
+  socket.value.on('allMessages', (allMessages) => {
+    messages.value = allMessages
   })
 
   // Listen for online users updates
   socket.value.on('onlineUsers', (data) => {
     onlineUsers.value = data.users
+
+    // update messages with latest username
+    for (const user of onlineUsers.value) {
+      if (currentUser.value && user.id === currentUser.value.id) {
+        currentUser.value.username = user.username
+      }
+
+      for (const message of messages.value) {
+        if (message.userId === user.id) {
+          message.username = user.username
+        }
+      }
+    }
   })
 
   // Listen for user joined

@@ -1,30 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import type { ChatMessage } from '../types';
+import { WsException } from '@nestjs/websockets';
+import { randomUUID } from 'crypto';
+import { MessageService } from '../message/message.service';
 import { UserService } from '../user/user.service';
+import { Message, User } from 'src/generated/prisma/client';
 
 @Injectable()
 export class ChatService {
-  // In-memory storage for messages
-  private messages: ChatMessage[] = [];
-
   // Map userId (UUID) to Set of socketIds (supports multiple connections per user)
   private userSockets: Map<string, Set<string>> = new Map();
 
-  constructor(private readonly userService: UserService) {}
-
-  /**
-   * Add a new message to the chat
-   */
-  addMessage(message: ChatMessage): void {
-    this.messages.push(message);
-  }
-
-  /**
-   * Get all messages
-   */
-  getMessages(): ChatMessage[] {
-    return this.messages;
-  }
+  constructor(
+    private readonly userService: UserService,
+    private readonly messageService: MessageService,
+  ) {}
 
   /**
    * Add a socket connection for a user
@@ -61,8 +50,60 @@ export class ChatService {
     return this.userSockets.get(userId) || new Set();
   }
 
+  getUser(userId: string) {
+    return this.userService.user({ id: userId });
+  }
+
+  async getUserOrThrow(userId: string) {
+    const user = await this.getUser(userId);
+    if (!user) {
+      throw new WsException('User not found');
+    }
+    return user;
+  }
+
   getOnlineUsers() {
     const onlineUserIds = this.getUserIds();
     return this.userService.users({ where: { id: { in: onlineUserIds } } });
+  }
+
+  createUser(username?: string) {
+    const userId = randomUUID();
+    const name = username || `Guest-${userId.slice(0, 6)}`;
+    return this.userService.createUser({ id: userId, username: name });
+  }
+
+  udpateUsername(userId: string, username: string) {
+    return this.userService.updateUser({
+      where: { id: userId },
+      data: { username: username },
+    });
+  }
+
+  /**
+   * Add a new message to the chat
+   */
+  addMessage(userId: string, content: string) {
+    return this.messageService.createMessage(
+      {
+        content: content,
+        user: { connect: { id: userId } },
+      },
+      { user: true },
+    ) as Promise<Message & { user: User }>;
+  }
+
+  /**
+   * Get all messages
+   */
+  getMessages() {
+    return this.messageService.messages({
+      orderBy: {
+        createdAt: 'asc',
+      },
+      include: {
+        user: true,
+      },
+    }) as Promise<(Message & { user: User })[]>;
   }
 }

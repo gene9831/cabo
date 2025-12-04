@@ -18,7 +18,9 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   exception: (error: unknown) => void;
   // Receive a chat message
-  message: (data: ChatMessage[]) => void;
+  message: (data: ChatMessage) => void;
+  // Receive all chat messages
+  allMessages: (data: ChatMessage[]) => void;
   // User joined notification
   userJoined: (data: { user: User }) => void;
   // User left notification

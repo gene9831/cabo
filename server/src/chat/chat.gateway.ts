@@ -9,17 +9,9 @@ import {
   WebSocketServer,
   WsException,
 } from '@nestjs/websockets';
-import { randomUUID } from 'crypto';
 import { Server } from 'socket.io';
 import { WsAuthGuard } from 'src/guards';
-import type {
-  AuthedClientSocket,
-  ChatMessage,
-  ClientSocket,
-  ClientToServerEvents,
-  ServerToClientEvents,
-} from '../types';
-import { UserService } from '../user/user.service';
+import type { AuthedClientSocket, ClientSocket, ClientToServerEvents, ServerToClientEvents } from '../types';
 import { ChatService } from './chat.service';
 import { AuthDto, MessageDto, SetUsernameDto } from './dto';
 
@@ -42,10 +34,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(ChatGateway.name);
 
-  constructor(
-    private readonly chatService: ChatService,
-    private readonly userService: UserService,
-  ) {}
+  constructor(private readonly chatService: ChatService) {}
 
   /**
    * Handle client connection
@@ -96,17 +85,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const id = data.id?.trim();
     const providedUsername = data.username?.trim();
 
-    console.log('id', id);
-    console.log('providedUsername', providedUsername);
     // Try to get existing user if id provided
-    let user = id ? await this.userService.user({ id }) : null;
+    let user = id ? await this.chatService.getUser(id) : null;
     const isNewUser = !user;
 
     // Create new user if not found
     if (!user) {
-      const userId = id || randomUUID();
-      const username = providedUsername || `Guest-${userId.slice(0, 6)}`;
-      user = await this.userService.createUser({ id: userId, username });
+      user = await this.chatService.createUser(providedUsername);
     }
 
     // Store user id in socket data
@@ -115,8 +100,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.chatService.addUserConnection(user.id, client.id);
 
     // Send message history to the client
-    const messages = this.chatService.getMessages();
-    client.emit('message', messages);
+    const messages = await this.chatService.getMessages();
+    client.emit(
+      'allMessages',
+      messages.map((message) => ({
+        id: message.id.toString(),
+        content: message.content,
+        userId: message.userId,
+        username: message.user.username,
+        timestamp: message.updatedAt.getTime(),
+      })),
+    );
 
     const onlineUsers = await this.chatService.getOnlineUsers();
     client.emit('onlineUsers', { users: onlineUsers });
@@ -132,37 +126,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
   }
 
-  private async getUser(userId: string) {
-    const user = await this.userService.user({ id: userId });
-    if (!user) {
-      throw new WsException('User not found');
-    }
-    return user;
-  }
-
   /**
    * Handle message event from client
    */
   @SubscribeMessage('message')
   async handleMessage(
-    @MessageBody() messageDto: MessageDto,
+    @MessageBody() data: MessageDto,
     @ConnectedSocket() client: AuthedClientSocket,
   ): Promise<CallbackParam<ClientToServerEvents['message']>> {
-    const user = await this.getUser(client.data.userId);
+    const user = await this.chatService.getUserOrThrow(client.data.userId);
 
-    const message: ChatMessage = {
-      id: `${Date.now()}-${client.id}`,
-      content: messageDto.content,
-      userId: user.id,
-      username: user.username,
-      timestamp: Date.now(),
-    };
+    const message = await this.chatService.addMessage(user.id, data.content);
 
-    // Save message to service
-    this.chatService.addMessage(message);
-
-    // Broadcast message to all clients
-    this.server.emit('message', [message]);
+    this.server.emit('message', {
+      id: message.id.toString(),
+      content: message.content,
+      userId: message.userId,
+      username: message.user.username,
+      timestamp: message.updatedAt.getTime(),
+    });
   }
 
   /**
@@ -173,13 +155,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: SetUsernameDto,
     @ConnectedSocket() client: AuthedClientSocket,
   ): Promise<CallbackParam<ClientToServerEvents['setUsername']>> {
-    const user = await this.getUser(client.data.userId);
+    const user = await this.chatService.getUserOrThrow(client.data.userId);
 
     // Update username in service
-    const updatedUser = await this.userService.updateUser({
-      where: { id: user.id },
-      data: { username: data.username },
-    });
+    const updatedUser = await this.chatService.udpateUsername(user.id, data.username);
 
     const onlineUsers = await this.chatService.getOnlineUsers();
     this.server.emit('onlineUsers', { users: onlineUsers });
