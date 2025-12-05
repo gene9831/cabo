@@ -17,6 +17,7 @@ model User {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
+  players   Player[]
 }
 
 model Message {
@@ -26,4 +27,33 @@ model Message {
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Game {
+  id                 String   @id @default(uuid())
+  status             String // 'PLAYING' | 'PAUSED' | 'ENDED' | 'ABANDONED'
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  currentPlayerIndex Int
+  deck               Json // Card[]
+  discardPile        Json // Card[]
+  round              Int
+  phase              Json // GamePhase
+  scores             Json // number[][]
+  players            Player[]
+}
+
+model Player {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  gameId        String
+  game          Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  hand          Json // HandCard[]
+  peekedAtSetup Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([gameId])
+  @@index([userId])
 }
